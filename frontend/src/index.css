@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  
+  body {
+    @apply bg-ink-900 text-white font-body;
+    background-image: 
+      radial-gradient(ellipse at 20% 50%, rgba(200, 255, 0, 0.03) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(184, 224, 255, 0.03) 0%, transparent 50%);
+    min-height: 100vh;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-ink-500 rounded-full; }
+}
+
+@layer components {
+  .card {
+    @apply bg-ink-800 border border-ink-600 rounded-2xl p-4 md:p-5;
+  }
+
+  .btn-acid {
+    @apply bg-acid text-ink-900 font-display font-bold px-5 py-2.5 rounded-xl
+    hover:bg-acid-dim transition-all duration-200 active:scale-95 text-sm;
+  }
+
+  .btn-ghost {
+    @apply bg-ink-700 text-white border border-ink-500 px-4 py-2 rounded-xl
+    hover:bg-ink-600 transition-all duration-200 active:scale-95 text-sm;
+  }
+
+  .badge-success {
+    @apply bg-green-500/20 text-green-400 text-xs px-2 py-0.5 rounded-full font-mono;
+  }
+  .badge-error {
+    @apply bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full font-mono;
+  }
+  .badge-running {
+    @apply bg-acid/20 text-acid text-xs px-2 py-0.5 rounded-full font-mono;
+  }
+  .badge-waiting {
+    @apply bg-ink-600 text-gray-400 text-xs px-2 py-0.5 rounded-full font-mono;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
