@@ -184,14 +184,16 @@ app.post('/api/generate/image', auth, async (req, res) => {
       : `${prompt}, professional stock photography, high quality, sharp focus, commercial use, well-lit`;
 
     const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
-        instances: [{ prompt: enhancedPrompt }],
-        parameters: { sampleCount: 1, aspectRatio: '1:1', safetyFilterLevel: 'block_few' }
+        contents: [{ parts: [{ text: enhancedPrompt }] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
       }
     );
 
-    const imageData = response.data?.predictions?.[0]?.bytesBase64Encoded;
+    const parts = response.data?.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find(p => p.inlineData?.mimeType?.includes('image'));
+    const imageData = imagePart?.inlineData?.data;
     if (!imageData) return res.status(500).json({ error: 'Gagal generate gambar — coba prompt yang berbeda' });
 
     const { Readable } = require('stream');
