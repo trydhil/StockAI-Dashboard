@@ -158,7 +158,7 @@ app.post('/api/bot/chat', auth, async (req, res) => {
     }));
 
     const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         system_instruction: { parts: [{ text: modeContext[mode] || modeContext.image }] },
         contents: geminiMessages,
@@ -184,7 +184,7 @@ app.post('/api/generate/image', auth, async (req, res) => {
       : `${prompt}, professional stock photography, high quality, sharp focus, commercial use, well-lit`;
 
     const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${process.env.GEMINI_API_KEY}`,
       {
         instances: [{ prompt: enhancedPrompt }],
         parameters: { sampleCount: 1, aspectRatio: '1:1', safetyFilterLevel: 'block_few' }
@@ -211,25 +211,51 @@ app.post('/api/generate/image', auth, async (req, res) => {
   }
 });
 
-// ─── Generate Video ───────────────────────────────────────────────────────────
+// ─── Generate Video (Veo 3) ───────────────────────────────────────────────────
 app.post('/api/generate/video', auth, async (req, res) => {
   try {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt required' });
 
-    const response = await axios.post(
-      'https://api.free.ai/v1/video/generate',
-      { prompt, duration: 5, aspect_ratio: '16:9', resolution: '1080p' },
-      { timeout: 120000, headers: { 'Content-Type': 'application/json' } }
+    // Submit generate request ke Veo 3
+    const submitResponse = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-001:predictLongRunning?key=${process.env.GEMINI_API_KEY}`,
+      {
+        instances: [{ prompt }],
+        parameters: {
+          aspectRatio: '16:9',
+          durationSeconds: 8,
+          personGeneration: 'dont_allow',
+          addWatermark: false
+        }
+      },
+      { timeout: 30000 }
     );
 
-    const videoUrl = response.data?.video_url || response.data?.url;
-    if (!videoUrl) return res.status(500).json({ error: 'Gagal generate video', prompt });
+    const operationName = submitResponse.data?.name;
+    if (!operationName) return res.status(500).json({ error: 'Gagal submit generate video', prompt });
 
-    const videoResponse = await axios.get(videoUrl, { responseType: 'arraybuffer', timeout: 60000 });
+    // Poll sampai selesai (max 3 menit)
+    let videoData = null;
+    for (let i = 0; i < 36; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+      const pollResponse = await axios.get(
+        `https://generativelanguage.googleapis.com/v1beta/${operationName}?key=${process.env.GEMINI_API_KEY}`
+      );
+      if (pollResponse.data?.done) {
+        videoData = pollResponse.data?.response?.predictions?.[0]?.bytesBase64Encoded ||
+                    pollResponse.data?.response?.predictions?.[0]?.video?.bytesBase64Encoded;
+        break;
+      }
+    }
+
+    if (!videoData) return res.status(500).json({ error: 'Timeout generate video', prompt });
+
+    // Upload ke Drive
     const { Readable } = require('stream');
-    const stream = Readable.from(Buffer.from(videoResponse.data));
-    const fileName = `ai_video_${Date.now()}.mp4`;
+    const buffer = Buffer.from(videoData, 'base64');
+    const stream = Readable.from(buffer);
+    const fileName = `veo3_video_${Date.now()}.mp4`;
 
     const driveResponse = await drive.files.create({
       requestBody: { name: fileName, parents: [process.env.AI_GENERATED_VIDEO_FOLDER_ID] },
@@ -240,8 +266,8 @@ app.post('/api/generate/video', auth, async (req, res) => {
     res.json({ success: true, fileName, driveFile: driveResponse.data });
   } catch (err) {
     res.status(503).json({
-      error: 'Free.ai tidak tersedia atau limit habis',
-      limitReached: true,
+      error: err.response?.data?.error?.message || err.message,
+      limitReached: err.response?.status === 429,
       prompt: req.body.prompt
     });
   }
@@ -249,8 +275,12 @@ app.post('/api/generate/video', auth, async (req, res) => {
 
 app.get('/api/generate/video/status', auth, async (req, res) => {
   try {
-    await axios.get('https://api.free.ai/v1/status', { timeout: 5000 });
-    res.json({ available: true });
+    // Test apakah Veo 3 bisa diakses
+    await axios.get(
+      `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-001?key=${process.env.GEMINI_API_KEY}`,
+      { timeout: 5000 }
+    );
+    res.json({ available: true, model: 'Veo 3.0' });
   } catch {
     res.json({ available: false });
   }
