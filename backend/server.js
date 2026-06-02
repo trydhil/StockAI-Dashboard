@@ -141,15 +141,18 @@ app.get('/api/n8n/status', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── AI Bot ───────────────────────────────────────────────────────────────────
+// ─── AI Bot (Gemini) ──────────────────────────────────────────────────────────
+// Bot pakai Gemini AIzaSy key - works untuk chat/text generation
+// Kalau quota habis hari ini, besok reset otomatis (free tier 1500 req/hari)
 app.post('/api/bot/chat', auth, async (req, res) => {
   try {
     const { messages, mode } = req.body;
+
     const modeContext = {
-      image: `You are an expert Adobe Stock image prompt consultant. Help create compelling prompts for stock photography. Requirements: JPEG, 4MP-100MP, max 45MB, no watermarks, commercially safe. Guide them with: subject, lighting, style, mood, composition, color palette. When prompt is ready, clearly label it as "**Final Prompt:**" followed by the prompt on the same line. Always respond in the same language the user uses.`,
-      transparent_png: `You are an expert Adobe Stock transparent PNG consultant. Help create prompts for transparent background cutout images. Requirements: PNG with alpha channel, 4MP-100MP, max 45MB, no background. When ready, label "**Final Prompt:**" on same line. Always respond in same language as user.`,
-      vector: `You are an expert Adobe Stock vector illustration consultant. Help create prompts for vector art. Requirements: AI/EPS/SVG, 15MP-65MP artboard, max 45MB. Style options: flat, line art, isometric. When ready, label "**Final Prompt:**" on same line. Respond in same language as user.`,
-      video: `You are an expert Adobe Stock video prompt consultant. Help create prompts for stock video footage. Requirements: MP4/MOV, min 720p (prefer 4K), 5-60 seconds, no watermarks, commercially safe. Include: scene, camera movement, lighting, mood, duration hint. When ready, label "**Final Prompt:**" on same line. Respond in same language as user.`
+      image: `You are an expert Adobe Stock image prompt consultant. Help create compelling prompts for stock photography. Adobe Stock requirements: JPEG format, minimum 4MP resolution, max 45MB file size, no watermarks, commercially safe content. Guide users to define: subject matter, lighting conditions, photography style, mood/atmosphere, composition, color palette. When the prompt is fully refined and ready to generate, clearly label it as "**Final Prompt:**" followed by the complete prompt on the same line. Always respond in the same language the user writes in.`,
+      transparent_png: `You are an expert Adobe Stock transparent PNG consultant. Help create prompts for isolated cutout images with transparent backgrounds. Requirements: PNG with alpha channel, minimum 4MP, max 45MB, clean transparent background with no artifacts. Guide users to define: subject (products, objects, characters), style (realistic/illustrative), lighting for clean cutout. When ready, label "**Final Prompt:**" on same line. Respond in same language as user.`,
+      vector: `You are an expert Adobe Stock vector illustration consultant. Help create prompts for vector artwork. Requirements: AI/EPS/SVG format, 15MP-65MP equivalent artboard, max 45MB, scalable without quality loss. Style options to discuss: flat design, line art, isometric, hand-drawn, geometric. When ready, label "**Final Prompt:**" on same line. Respond in same language as user.`,
+      video: `You are an expert Adobe Stock video prompt consultant. Help create prompts for professional stock video footage. Requirements: MP4 or MOV format, minimum 720p resolution (4K preferred), duration 5-60 seconds, no watermarks, commercially safe. Include in prompt: scene description, camera movement (pan/zoom/static/dolly), lighting conditions, mood, color grading style, suggested duration. When ready, label "**Final Prompt:**" on same line. Respond in same language as user.`
     };
 
     const geminiMessages = messages.map(m => ({
@@ -166,60 +169,95 @@ app.post('/api/bot/chat', auth, async (req, res) => {
       }
     );
 
-    const reply = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Maaf, tidak bisa merespons.';
+    const reply = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Maaf, tidak bisa merespons saat ini.';
     res.json({ reply });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    const status = err.response?.status;
+    const errMsg = err.response?.data?.error?.message || err.message;
+    // Kalau 429 quota habis, kasih pesan yang jelas
+    if (status === 429) {
+      return res.status(429).json({
+        error: 'Quota Gemini habis hari ini. Bot akan normal kembali besok (reset otomatis). Sementara itu, Anda masih bisa generate image dan video.',
+        limitReached: true
+      });
+    }
+    res.status(500).json({ error: errMsg });
+  }
 });
 
-// ─── Generate Image ───────────────────────────────────────────────────────────
+// ─── Generate Image (Pollinations AI) ────────────────────────────────────────
+// 100% gratis, no API key, no watermark, commercial use OK
+// Resolusi 1024x1024, format JPEG
 app.post('/api/generate/image', auth, async (req, res) => {
   try {
     const { prompt, mode } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt required' });
 
-    const enhancedPrompt = mode === 'transparent_png'
-      ? `${prompt}, isolated on pure white background, no background elements, clean cutout, professional stock image style`
-      : mode === 'vector'
-      ? `${prompt}, vector illustration, flat design style, clean geometric shapes, professional illustration, scalable graphics`
-      : `${prompt}, professional stock photography, high quality, sharp focus, commercial use, well-lit`;
+    // Enhance prompt berdasarkan mode
+    let enhancedPrompt;
+    if (mode === 'transparent_png') {
+      enhancedPrompt = `${prompt}, isolated subject on pure white background, clean edges, no background elements, product photography style, professional stock image`;
+    } else if (mode === 'vector') {
+      enhancedPrompt = `${prompt}, vector illustration, flat design style, clean geometric shapes, bold outlines, professional digital art, scalable graphics, white background`;
+    } else {
+      enhancedPrompt = `${prompt}, professional stock photography, high quality, sharp focus, well-lit, commercial use, clean composition`;
+    }
 
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        contents: [{ parts: [{ text: enhancedPrompt }] }],
-        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
-      }
+    const encodedPrompt = encodeURIComponent(enhancedPrompt);
+    const seed = Math.floor(Math.random() * 999999);
+
+    console.log(`[Generate Image] Mode: ${mode} | Prompt: ${prompt.substring(0, 50)}...`);
+
+    const imageResponse = await axios.get(
+      `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&enhance=true&seed=${seed}`,
+      { responseType: 'arraybuffer', timeout: 90000 }
     );
 
-    const parts = response.data?.candidates?.[0]?.content?.parts || [];
-    const imagePart = parts.find(p => p.inlineData?.mimeType?.includes('image'));
-    const imageData = imagePart?.inlineData?.data;
-    if (!imageData) return res.status(500).json({ error: 'Gagal generate gambar — coba prompt yang berbeda' });
+    if (!imageResponse.data || imageResponse.data.length < 1000) {
+      return res.status(500).json({ error: 'Gagal generate gambar — coba prompt yang lebih spesifik' });
+    }
 
-    const { Readable } = require('stream');
-    const buffer = Buffer.from(imageData, 'base64');
-    const stream = Readable.from(buffer);
+    const imageData = Buffer.from(imageResponse.data).toString('base64');
     const fileName = `ai_${mode}_${Date.now()}.jpg`;
 
+    // Upload ke Google Drive folder AI_Generated
+    const { Readable } = require('stream');
+    const buffer = Buffer.from(imageResponse.data);
+    const stream = Readable.from(buffer);
+
     const driveResponse = await drive.files.create({
-      requestBody: { name: fileName, parents: [process.env.AI_GENERATED_IMAGE_FOLDER_ID] },
+      requestBody: {
+        name: fileName,
+        parents: [process.env.AI_GENERATED_IMAGE_FOLDER_ID]
+      },
       media: { mimeType: 'image/jpeg', body: stream },
       fields: 'id,name,webViewLink'
     });
 
-    res.json({ success: true, imageBase64: imageData, fileName, driveFile: driveResponse.data });
+    console.log(`[Generate Image] Sukses → Drive: ${driveResponse.data.id}`);
+    res.json({
+      success: true,
+      imageBase64: imageData,
+      fileName,
+      driveFile: driveResponse.data
+    });
   } catch (err) {
-    res.status(500).json({ error: err.response?.data?.error?.message || err.message });
+    console.error('[Generate Image] Error:', err.message);
+    res.status(500).json({ error: err.message || 'Gagal generate gambar' });
   }
 });
 
 // ─── Generate Video (Veo 3) ───────────────────────────────────────────────────
+// Pakai Gemini API key (AIzaSy...), model veo-3.0-generate-001
+// No watermark, commercial use, 16:9, 8 detik default
 app.post('/api/generate/video', auth, async (req, res) => {
   try {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt required' });
 
-    // Submit generate request ke Veo 3
+    console.log(`[Generate Video] Submitting ke Veo 3: ${prompt.substring(0, 50)}...`);
+
+    // Submit generate request
     const submitResponse = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-001:predictLongRunning?key=${process.env.GEMINI_API_KEY}`,
       {
@@ -235,38 +273,51 @@ app.post('/api/generate/video', auth, async (req, res) => {
     );
 
     const operationName = submitResponse.data?.name;
-    if (!operationName) return res.status(500).json({ error: 'Gagal submit generate video', prompt });
+    if (!operationName) {
+      return res.status(500).json({ error: 'Gagal submit ke Veo 3 — coba lagi', prompt });
+    }
 
-    // Poll sampai selesai (max 3 menit)
+    console.log(`[Generate Video] Operation: ${operationName}`);
+
+    // Poll sampai selesai (max 5 menit = 60 x 5 detik)
     let videoData = null;
-    for (let i = 0; i < 36; i++) {
+    for (let i = 0; i < 60; i++) {
       await new Promise(r => setTimeout(r, 5000));
       const pollResponse = await axios.get(
         `https://generativelanguage.googleapis.com/v1beta/${operationName}?key=${process.env.GEMINI_API_KEY}`
       );
+
       if (pollResponse.data?.done) {
         videoData = pollResponse.data?.response?.predictions?.[0]?.bytesBase64Encoded ||
                     pollResponse.data?.response?.predictions?.[0]?.video?.bytesBase64Encoded;
+        console.log(`[Generate Video] Done setelah ${(i + 1) * 5} detik`);
         break;
       }
     }
 
-    if (!videoData) return res.status(500).json({ error: 'Timeout generate video', prompt });
+    if (!videoData) {
+      return res.status(500).json({ error: 'Timeout — video terlalu lama di-generate. Coba prompt yang lebih sederhana.', prompt });
+    }
 
-    // Upload ke Drive
+    // Upload ke Google Drive folder AI_Generated Video
     const { Readable } = require('stream');
     const buffer = Buffer.from(videoData, 'base64');
     const stream = Readable.from(buffer);
-    const fileName = `veo3_video_${Date.now()}.mp4`;
+    const fileName = `veo3_${Date.now()}.mp4`;
 
     const driveResponse = await drive.files.create({
-      requestBody: { name: fileName, parents: [process.env.AI_GENERATED_VIDEO_FOLDER_ID] },
+      requestBody: {
+        name: fileName,
+        parents: [process.env.AI_GENERATED_VIDEO_FOLDER_ID]
+      },
       media: { mimeType: 'video/mp4', body: stream },
       fields: 'id,name,webViewLink'
     });
 
+    console.log(`[Generate Video] Sukses → Drive: ${driveResponse.data.id}`);
     res.json({ success: true, fileName, driveFile: driveResponse.data });
   } catch (err) {
+    console.error('[Generate Video] Error:', err.response?.data?.error?.message || err.message);
     res.status(503).json({
       error: err.response?.data?.error?.message || err.message,
       limitReached: err.response?.status === 429,
@@ -275,9 +326,9 @@ app.post('/api/generate/video', auth, async (req, res) => {
   }
 });
 
+// Status Veo 3
 app.get('/api/generate/video/status', auth, async (req, res) => {
   try {
-    // Test apakah Veo 3 bisa diakses
     await axios.get(
       `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-001?key=${process.env.GEMINI_API_KEY}`,
       { timeout: 5000 }
@@ -292,13 +343,20 @@ app.get('/api/generate/video/status', auth, async (req, res) => {
 app.post('/api/desktop/upscayl', auth, (req, res) => {
   const p = process.env.UPSCAYL_PATH || 'C:\\Program Files\\Upscayl\\upscayl.exe';
   exec(`"${p}"`, (err) => {
-    if (err) return res.status(500).json({ error: 'Upscayl tidak ditemukan' });
+    if (err) return res.status(500).json({ error: 'Upscayl tidak ditemukan di path: ' + p });
     res.json({ success: true });
   });
 });
 
 app.post('/api/desktop/explorer', auth, (req, res) => {
-  const safePath = req.body.path || 'C:\\Users\\ASUS\\kerja';
+  const allowedPaths = [
+    'C:\\Users\\ASUS\\kerja',
+    'C:\\Users\\ASUS\\ContriAI_Stock',
+    'C:\\Users\\ASUS\\Downloads',
+    'C:\\Users\\ASUS\\Desktop'
+  ];
+  const reqPath = req.body.path || 'C:\\Users\\ASUS\\kerja';
+  const safePath = allowedPaths.includes(reqPath) ? reqPath : 'C:\\Users\\ASUS\\kerja';
   exec(`explorer "${safePath}"`, (err) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
@@ -332,7 +390,7 @@ let lastVideosCount = 0;
 
 const checkAndRun = async () => {
   try {
-    // Cek folder Pictures/Upload
+    // Cek Pictures/Upload
     const picRes = await drive.files.list({
       q: `'${process.env.PICTURES_UPLOAD_FOLDER_ID}' in parents and trashed=false`,
       fields: 'files(id)',
@@ -340,7 +398,7 @@ const checkAndRun = async () => {
     });
     const picCount = (picRes.data.files || []).length;
 
-    // Cek folder Videos/Upload
+    // Cek Videos/Upload
     const vidRes = await drive.files.list({
       q: `'${process.env.VIDEOS_UPLOAD_FOLDER_ID}' in parents and trashed=false`,
       fields: 'files(id)',
@@ -352,9 +410,9 @@ const checkAndRun = async () => {
     const hasNewVideos = vidCount > lastVideosCount;
 
     if (hasNewPictures || hasNewVideos) {
-      const newPic = picCount - lastPicturesCount;
-      const newVid = vidCount - lastVideosCount;
-      console.log(`[AutoMode] File baru — Pictures: +${newPic > 0 ? newPic : 0}, Videos: +${newVid > 0 ? newVid : 0}`);
+      const newPic = Math.max(0, picCount - lastPicturesCount);
+      const newVid = Math.max(0, vidCount - lastVideosCount);
+      console.log(`[AutoMode] File baru — Pictures: +${newPic}, Videos: +${newVid}`);
       await triggerWorkflow();
       console.log(`[AutoMode] Workflow triggered ✅`);
     }
@@ -370,7 +428,6 @@ app.post('/api/automode', auth, (req, res) => {
   const { enabled } = req.body;
   autoMode = enabled;
   if (enabled) {
-    // Reset counter saat aktifkan
     lastPicturesCount = 0;
     lastVideosCount = 0;
     autoJob = schedule.scheduleJob('*/5 * * * *', checkAndRun);
@@ -393,4 +450,9 @@ app.get('*', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 StockAI V2.0 → http://localhost:${PORT}`);
   console.log(`📱 Mobile → http://YOUR_PC_IP:${PORT}\n`);
+  console.log('📋 Services:');
+  console.log('   🤖 Bot Chat    → Gemini 2.5 Flash (quota reset tiap hari)');
+  console.log('   🖼️  Generate Image → Pollinations AI (gratis unlimited)');
+  console.log('   🎬 Generate Video → Veo 3.0 (pakai Gemini key)');
+  console.log('   ☁️  Storage      → Google Drive\n');
 });
