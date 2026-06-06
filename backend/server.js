@@ -107,11 +107,18 @@ const n8nHeaders = () => ({
 });
 
 const triggerWorkflow = async () => {
-  const response = await axios.post(
-    `${process.env.N8N_BASE_URL}/api/v1/workflows/${process.env.N8N_WORKFLOW_ID}/run`,
-    {}, { headers: n8nHeaders() }
-  );
-  return response.data;
+  try {
+    const response = await axios.post(
+      'http://localhost:5678/webhook/trigger-stock',
+      {},
+      { timeout: 10000 }
+    );
+    return response.data;
+  } catch (err) {
+    const errDetail = err.response?.data?.message || err.message;
+    console.error('[N8N Trigger] Error:', errDetail);
+    throw new Error(errDetail);
+  }
 };
 
 app.post('/api/n8n/execute', auth, async (req, res) => {
