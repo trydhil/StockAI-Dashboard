@@ -16,8 +16,10 @@ export const api = {
   getFolders: () => axios.get(`${BASE}/drive/folders`, { headers: headers() }),
 
   // n8n
-  executeWorkflow: () => axios.post(`${BASE}/n8n/execute`, {}, { headers: headers() }),
-  getExecutions: () => axios.get(`${BASE}/n8n/executions`, { headers: headers() }),
+executeWorkflow: () => axios.post(`${BASE}/n8n/execute`, {}, { 
+  headers: headers(),
+  timeout: 30000
+}),  getExecutions: () => axios.get(`${BASE}/n8n/executions`, { headers: headers() }),
   getN8nStatus: () => axios.get(`${BASE}/n8n/status`, { headers: headers() }),
 
   // AI Bot & Generate

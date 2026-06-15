@@ -36,14 +36,20 @@ export default function Dashboard() {
   }
 
   const handleExecute = async () => {
-    setRunning(true)
-    try {
-      await api.executeWorkflow()
-      showToast('Workflow berhasil dijalankan!')
-      setTimeout(loadData, 3000)
-    } catch { showToast('Gagal menjalankan workflow', 'error') }
-    finally { setRunning(false) }
+  if (running) return;
+  setRunning(true);
+  try {
+    const res = await api.executeWorkflow();
+    console.log('[Dashboard] Execute response:', res.data);
+    showToast('Workflow berhasil dijalankan! 🚀');
+    setTimeout(loadData, 3000);
+  } catch (err) {
+    console.error('[Dashboard] Execute error:', err);
+    showToast(err.response?.data?.error || 'Gagal menjalankan workflow', 'error');
+  } finally {
+    setRunning(false);
   }
+};
 
   const toggleAutoMode = async () => {
     try {

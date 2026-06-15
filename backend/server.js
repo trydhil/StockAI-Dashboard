@@ -79,27 +79,44 @@ app.delete('/api/drive/files/:fileId', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/drive/folders', auth, (req, res) => {
-  res.json({
-    // Pictures
-    pictures: process.env.PICTURES_FOLDER_ID,
-    pictures_upload: process.env.PICTURES_UPLOAD_FOLDER_ID,
-    converted_jpeg: process.env.CONVERTED_JPEG_FOLDER_ID,
-    transparent_png: process.env.TRANSPARENT_PNG_FOLDER_ID,
-    vector: process.env.VECTOR_FOLDER_ID,
-    ai_generated_image: process.env.AI_GENERATED_IMAGE_FOLDER_ID,
-    pictures_csv: process.env.PICTURES_CSV_FOLDER_ID,
-    // Videos
-    videos: process.env.VIDEOS_FOLDER_ID,
-    videos_upload: process.env.VIDEOS_UPLOAD_FOLDER_ID,
-    converted_mp4: process.env.CONVERTED_MP4_FOLDER_ID,
-    ai_generated_video: process.env.AI_GENERATED_VIDEO_FOLDER_ID,
-    videos_csv: process.env.VIDEOS_CSV_FOLDER_ID,
-    // Legacy
-    csv_output: process.env.PICTURES_CSV_FOLDER_ID,
-  });
+app.get('/api/drive/folders', auth, async (req, res) => {
+  try {
+    // Ambil folder dari environment variables
+    const folders = {
+      // Pictures
+      pictures: process.env.PICTURES_FOLDER_ID,
+      pictures_upload: process.env.PICTURES_UPLOAD_FOLDER_ID,
+      converted_jpeg: process.env.CONVERTED_JPEG_FOLDER_ID,
+      transparent_png: process.env.TRANSPARENT_PNG_FOLDER_ID,
+      vector: process.env.VECTOR_FOLDER_ID,
+      ai_generated_image: process.env.AI_GENERATED_IMAGE_FOLDER_ID,
+      pictures_csv: process.env.PICTURES_CSV_FOLDER_ID,
+      // Videos
+      videos: process.env.VIDEOS_FOLDER_ID,
+      videos_upload: process.env.VIDEOS_UPLOAD_FOLDER_ID,
+      converted_mp4: process.env.CONVERTED_MP4_FOLDER_ID,
+      ai_generated_video: process.env.AI_GENERATED_VIDEO_FOLDER_ID,
+      videos_csv: process.env.VIDEOS_CSV_FOLDER_ID,
+      // Belum Upscale
+      belum_upscale: process.env.BELUM_UPSCALE_FOLDER_ID || '1xqhO-4SdNsOgKl52cpT2TkwJ8nVtG0zU'
+    };
+    
+    // Validasi setiap folder ID
+    const missingFolders = [];
+    for (const [key, value] of Object.entries(folders)) {
+      if (!value) missingFolders.push(key);
+    }
+    
+    if (missingFolders.length > 0) {
+      console.warn('[Drive Folders] Missing folder IDs:', missingFolders);
+    }
+    
+    res.json(folders);
+  } catch (err) {
+    console.error('[Drive Folders] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
-
 // ─── n8n ──────────────────────────────────────────────────────────────────────
 const n8nHeaders = () => ({
   'X-N8N-API-KEY': process.env.N8N_API_KEY,
@@ -108,11 +125,16 @@ const n8nHeaders = () => ({
 
 const triggerWorkflow = async () => {
   try {
+    console.log('[N8N Trigger] Memanggil webhook...');
     const response = await axios.post(
-      'http://localhost:5678/webhook/trigger-stock',
-      {},
-      { timeout: 10000 }
+      `${process.env.N8N_BASE_URL}/webhook/trigger-stock`,
+      { timestamp: Date.now() },
+      { 
+        timeout: 30000,
+        headers: { 'Content-Type': 'application/json' }
+      }
     );
+    console.log('[N8N Trigger] Response:', response.status);
     return response.data;
   } catch (err) {
     const errDetail = err.response?.data?.message || err.message;

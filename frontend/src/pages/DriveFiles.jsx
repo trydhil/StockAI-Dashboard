@@ -13,6 +13,7 @@ const FOLDERS = [
   { key: 'converted_mp4', label: 'MP4', icon: Video, color: 'text-orange-400' },
   { key: 'ai_generated_video', label: 'AI Video', icon: Video, color: 'text-red-400' },
   { key: 'videos_csv', label: 'CSV Video', icon: FileText, color: 'text-yellow-300' },
+  { key: 'belum_upscale', label: 'Belum Upscale', icon: Image, color: 'text-purple-300' }, // TAMBAHKAN
 ]
 
 function formatSize(bytes) {
