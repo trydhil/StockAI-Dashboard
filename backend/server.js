@@ -273,7 +273,6 @@ app.post('/api/generate/video', auth, async (req, res) => {
           aspectRatio: '16:9',
           durationSeconds: 8,
           personGeneration: 'dont_allow',
-          addWatermark: false
         }
       },
       { timeout: 30000 }
