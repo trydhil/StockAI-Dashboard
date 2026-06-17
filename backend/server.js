@@ -125,23 +125,76 @@ const n8nHeaders = () => ({
 
 const triggerWorkflow = async () => {
   try {
-    console.log('[N8N Trigger] Memanggil webhook...');
+    console.log('[N8N Trigger] Ambil file terbaru dari Drive...');
+    
+    let latestFile = null;
+    let fileSource = null;
+    
+    const picRes = await drive.files.list({
+      q: `'${process.env.PICTURES_UPLOAD_FOLDER_ID}' in parents and trashed=false`,
+      fields: 'files(id,name,mimeType,size)',
+      orderBy: 'createdTime desc',
+      pageSize: 1
+    });
+    
+    if (picRes.data.files?.length > 0) {
+      fileSource = 'pictures';
+      // files.list kadang tidak return size — fetch detail lengkap
+      const detail = await drive.files.get({
+        fileId: picRes.data.files[0].id,
+        fields: 'id,name,mimeType,size'
+      });
+      latestFile = detail.data;
+    } else {
+      const vidRes = await drive.files.list({
+        q: `'${process.env.VIDEOS_UPLOAD_FOLDER_ID}' in parents and trashed=false`,
+        fields: 'files(id,name,mimeType,size)',
+        orderBy: 'createdTime desc',
+        pageSize: 1
+      });
+      if (vidRes.data.files?.length > 0) {
+        fileSource = 'videos';
+        const detail = await drive.files.get({
+          fileId: vidRes.data.files[0].id,
+          fields: 'id,name,mimeType,size'
+        });
+        latestFile = detail.data;
+      }
+    }
+    
+    if (!latestFile) {
+      throw new Error('Tidak ada file di folder Upload!');
+    }
+
+    console.log('[N8N Trigger] File detail:', JSON.stringify(latestFile));
+    
+    if (!latestFile) {
+      throw new Error('Tidak ada file di folder Upload!');
+    }
+    
     const response = await axios.post(
       `${process.env.N8N_BASE_URL}/webhook/trigger-stock`,
-      { timestamp: Date.now() },
+      {
+        id: latestFile.id,
+        name: latestFile.name,
+        mimeType: latestFile.mimeType,
+        size: latestFile.size,
+        fileSource: fileSource
+      },
       { 
         timeout: 30000,
         headers: { 'Content-Type': 'application/json' }
       }
     );
-    console.log('[N8N Trigger] Response:', response.status);
+    
+    console.log('[N8N Trigger] Sukses:', response.status);
     return response.data;
   } catch (err) {
     const errDetail = err.response?.data?.message || err.message;
     console.error('[N8N Trigger] Error:', errDetail);
     throw new Error(errDetail);
   }
-};
+};  
 
 app.post('/api/n8n/execute', auth, async (req, res) => {
   try {
@@ -408,6 +461,24 @@ app.get('/api/desktop/sysinfo', auth, (req, res) => {
     freeMem: Math.round(os.freemem() / 1024 / 1024 / 1024 * 10) / 10,
     cpus: os.cpus().length
   });
+});
+
+
+app.get('/api/n8n/workflow-info', auth, async (req, res) => {
+  try {
+    const response = await axios.get(
+      `${process.env.N8N_BASE_URL}/api/v1/workflows/${process.env.N8N_WORKFLOW_ID}`,
+      { headers: n8nHeaders() }
+    );
+    const wf = response.data;
+    res.json({
+      id: wf.id,
+      name: wf.name,
+      active: wf.active,
+      updatedAt: wf.updatedAt,
+      n8nUrl: `${process.env.N8N_BASE_URL}/workflow/${wf.id}`
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── Auto Mode ────────────────────────────────────────────────────────────────

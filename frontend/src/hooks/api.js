@@ -1,40 +1,53 @@
 import axios from 'axios'
 
-const BASE = '/api'
-const headers = () => ({ 'x-dashboard-pin': localStorage.getItem('stockai_pin') || '' })
+const BASE = ''
+const pin = () => localStorage.getItem('stockai_pin') || ''
+
+const client = axios.create({
+  baseURL: BASE,
+  headers: { 'Content-Type': 'application/json' }
+})
+
+client.interceptors.request.use(config => {
+  config.headers['x-dashboard-pin'] = pin()
+  return config
+})
 
 export const api = {
   // Auth
-  login: (pin) => axios.post(`${BASE}/auth/login`, { pin }),
+  login: (p) => client.post('/api/auth/login', { pin: p }),
 
   // Drive
-  getFiles: (folderId) => axios.get(`${BASE}/drive/files?folderId=${folderId}`, { headers: headers() }),
-  uploadFiles: (formData) => axios.post(`${BASE}/drive/upload`, formData, {
-    headers: { ...headers(), 'Content-Type': 'multipart/form-data' }
+  getFolders: () => client.get('/api/drive/folders'),
+  getFiles: (folderId) => client.get('/api/drive/files', { params: { folderId } }),
+  uploadFiles: (form) => client.post('/api/drive/upload', form, {
+    headers: { 'Content-Type': 'multipart/form-data' }
   }),
-  deleteFile: (fileId) => axios.delete(`${BASE}/drive/files/${fileId}`, { headers: headers() }),
-  getFolders: () => axios.get(`${BASE}/drive/folders`, { headers: headers() }),
+  deleteFile: (fileId) => client.delete(`/api/drive/files/${fileId}`),
 
-  // n8n
-executeWorkflow: () => axios.post(`${BASE}/n8n/execute`, {}, { 
-  headers: headers(),
-  timeout: 30000
-}),  getExecutions: () => axios.get(`${BASE}/n8n/executions`, { headers: headers() }),
-  getN8nStatus: () => axios.get(`${BASE}/n8n/status`, { headers: headers() }),
+  // N8N
+  executeWorkflow: () => client.post('/api/n8n/execute'),
+  getExecutions: () => client.get('/api/n8n/executions'),
+  getWorkflowStatus: () => client.get('/api/n8n/status'),
+  getWorkflowInfo: () => client.get('/api/n8n/workflow-info'),
 
-  // AI Bot & Generate
-  botChat: (messages, mode) => axios.post(`${BASE}/bot/chat`, { messages, mode }, { headers: headers() }),
-  generateImage: (prompt, mode) => axios.post(`${BASE}/generate/image`, { prompt, mode }, { headers: headers() }),
-  generateVideo: (prompt) => axios.post(`${BASE}/generate/video`, { prompt }, { headers: headers() }),
-  getVideoStatus: () => axios.get(`${BASE}/generate/video/status`, { headers: headers() }),
+  // Auto Mode
+  getAutoMode: () => client.get('/api/automode'),
+  setAutoMode: (enabled) => client.post('/api/automode', { enabled }),
+
+  // System
+  getSysInfo: () => client.get('/api/desktop/sysinfo'),
 
   // Desktop
-  openUpscayl: () => axios.post(`${BASE}/desktop/upscayl`, {}, { headers: headers() }),
-  openExplorer: (path) => axios.post(`${BASE}/desktop/explorer`, { path }, { headers: headers() }),
-  openCmd: () => axios.post(`${BASE}/desktop/cmd`, {}, { headers: headers() }),
-  getSysInfo: () => axios.get(`${BASE}/desktop/sysinfo`, { headers: headers() }),
+  openExplorer: (path) => client.post('/api/desktop/explorer', { path }),
+  openUpscayl: () => client.post('/api/desktop/upscayl'),
+  openCmd: () => client.post('/api/desktop/cmd'),
 
-  // Auto mode
-  setAutoMode: (enabled) => axios.post(`${BASE}/automode`, { enabled }, { headers: headers() }),
-  getAutoMode: () => axios.get(`${BASE}/automode`, { headers: headers() }),
+  // AI Bot
+  botChat: (messages, mode) => client.post('/api/bot/chat', { messages, mode }),
+
+  // Generate
+  generateImage: (prompt, mode) => client.post('/api/generate/image', { prompt, mode }),
+  generateVideo: (prompt) => client.post('/api/generate/video', { prompt }),
+  getVideoStatus: () => client.get('/api/generate/video/status'),
 }

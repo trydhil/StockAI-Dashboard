@@ -1,19 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../hooks/api'
-import { Upload, Trash2, FolderOpen, Image, FileText, RefreshCw, ExternalLink, Video, Layers, Square } from 'lucide-react'
+import { Upload, Trash2, FolderOpen, Image, FileText, RefreshCw, ExternalLink, Video, Layers, Square, AlertCircle } from 'lucide-react'
 
 const FOLDERS = [
-  { key: 'pictures_upload', label: 'Upload', icon: Upload, color: 'text-acid' },
-  { key: 'converted_jpeg', label: 'JPEG', icon: Image, color: 'text-green-400' },
-  { key: 'transparent_png', label: 'Trans PNG', icon: Square, color: 'text-ice' },
-  { key: 'vector', label: 'Vector', icon: Layers, color: 'text-purple-400' },
-  { key: 'ai_generated_image', label: 'AI Image', icon: Image, color: 'text-pink-400' },
-  { key: 'pictures_csv', label: 'CSV Image', icon: FileText, color: 'text-yellow-400' },
-  { key: 'videos_upload', label: 'Video Upload', icon: Video, color: 'text-coral' },
-  { key: 'converted_mp4', label: 'MP4', icon: Video, color: 'text-orange-400' },
-  { key: 'ai_generated_video', label: 'AI Video', icon: Video, color: 'text-red-400' },
-  { key: 'videos_csv', label: 'CSV Video', icon: FileText, color: 'text-yellow-300' },
-  { key: 'belum_upscale', label: 'Belum Upscale', icon: Image, color: 'text-purple-300' }, // TAMBAHKAN
+  { key: 'pictures_upload',    label: 'Upload',        icon: Upload,      color: 'text-acid' },
+  { key: 'converted_jpeg',     label: 'JPEG',          icon: Image,       color: 'text-green-400' },
+  { key: 'transparent_png',    label: 'Trans PNG',     icon: Square,      color: 'text-ice' },
+  { key: 'vector',             label: 'Vector',        icon: Layers,      color: 'text-purple-400' },
+  { key: 'ai_generated_image', label: 'AI Image',      icon: Image,       color: 'text-pink-400' },
+  { key: 'belum_upscale',      label: 'Belum Upscale', icon: AlertCircle, color: 'text-yellow-400' },
+  { key: 'pictures_csv',       label: 'CSV Image',     icon: FileText,    color: 'text-yellow-300' },
+  { key: 'videos_upload',      label: 'Video Upload',  icon: Video,       color: 'text-coral' },
+  { key: 'converted_mp4',      label: 'MP4',           icon: Video,       color: 'text-orange-400' },
+  { key: 'ai_generated_video', label: 'AI Video',      icon: Video,       color: 'text-red-400' },
+  { key: 'videos_csv',         label: 'CSV Video',     icon: FileText,    color: 'text-blue-300' },
 ]
 
 function formatSize(bytes) {
@@ -72,7 +72,7 @@ export default function DriveFiles() {
       showToast(`${e.target.files.length} file diupload!`)
       loadFiles()
     } catch { showToast('Upload gagal', 'error') }
-    finally { setUploading(false) }
+    finally { setUploading(false); e.target.value = '' }
   }
 
   const handleDelete = async (fileId, fileName) => {
@@ -99,7 +99,8 @@ export default function DriveFiles() {
   }
 
   const currentFolder = FOLDERS.find(f => f.key === activeFolder)
-  const isUploadFolder = activeFolder === 'pictures_upload' || activeFolder === 'videos_upload'
+  const isUploadFolder = ['pictures_upload', 'videos_upload', 'belum_upscale', 'ai_generated_image', 'ai_generated_video'].includes(activeFolder)
+  const isBelumUpscale = activeFolder === 'belum_upscale'
 
   return (
     <div className="animate-fade-in">
@@ -120,7 +121,7 @@ export default function DriveFiles() {
           {selected.length > 0 && (
             <button onClick={handleDeleteSelected} className="btn-ghost text-coral border-red-500/30 text-xs px-3 py-2">
               <Trash2 size={13} className="inline mr-1" />
-              ({selected.length})
+              Hapus ({selected.length})
             </button>
           )}
           <button onClick={loadFiles} className="btn-ghost text-xs px-3 py-2">
@@ -139,13 +140,31 @@ export default function DriveFiles() {
         </div>
       </div>
 
-      {/* Folder Tabs - horizontal scroll on mobile */}
+      {/* Belum Upscale Warning */}
+      {isBelumUpscale && files.length > 0 && (
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 mb-4 flex items-start gap-2">
+          <AlertCircle size={14} className="text-yellow-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-yellow-400 text-xs font-semibold">File perlu di-upscale dulu</p>
+            <p className="text-yellow-400/70 text-xs mt-0.5">
+              {files.length} file di sini resolusinya terlalu kecil ({'<'}4MP). 
+              Upscale dulu dengan Upscayl, lalu pindahkan ke folder Upload.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Folder Tabs */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap">
         {FOLDERS.map(({ key, label, icon: Icon, color }) => (
           <button key={key} onClick={() => setActiveFolder(key)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap shrink-0
-              ${activeFolder === key ? 'bg-acid/15 text-acid border border-acid/30' : 'bg-ink-700 text-gray-400 hover:text-white'}`}>
-            <Icon size={12} className={activeFolder === key ? 'text-acid' : color} />
+              ${activeFolder === key
+                ? key === 'belum_upscale'
+                  ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'
+                  : 'bg-acid/15 text-acid border border-acid/30'
+                : 'bg-ink-700 text-gray-400 hover:text-white'}`}>
+            <Icon size={12} className={activeFolder === key ? (key === 'belum_upscale' ? 'text-yellow-400' : 'text-acid') : color} />
             {label}
           </button>
         ))}
@@ -160,7 +179,9 @@ export default function DriveFiles() {
       ) : files.length === 0 ? (
         <div className="text-center py-16">
           <FolderOpen size={36} className="text-ink-500 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">Folder kosong</p>
+          <p className="text-gray-500 text-sm">
+            {!folderIds[activeFolder] ? 'Folder ID tidak ditemukan di .env' : 'Folder kosong'}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
