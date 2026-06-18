@@ -81,9 +81,7 @@ app.delete('/api/drive/files/:fileId', auth, async (req, res) => {
 
 app.get('/api/drive/folders', auth, async (req, res) => {
   try {
-    // Ambil folder dari environment variables
     const folders = {
-      // Pictures
       pictures: process.env.PICTURES_FOLDER_ID,
       pictures_upload: process.env.PICTURES_UPLOAD_FOLDER_ID,
       converted_jpeg: process.env.CONVERTED_JPEG_FOLDER_ID,
@@ -91,32 +89,27 @@ app.get('/api/drive/folders', auth, async (req, res) => {
       vector: process.env.VECTOR_FOLDER_ID,
       ai_generated_image: process.env.AI_GENERATED_IMAGE_FOLDER_ID,
       pictures_csv: process.env.PICTURES_CSV_FOLDER_ID,
-      // Videos
       videos: process.env.VIDEOS_FOLDER_ID,
       videos_upload: process.env.VIDEOS_UPLOAD_FOLDER_ID,
       converted_mp4: process.env.CONVERTED_MP4_FOLDER_ID,
       ai_generated_video: process.env.AI_GENERATED_VIDEO_FOLDER_ID,
       videos_csv: process.env.VIDEOS_CSV_FOLDER_ID,
-      // Belum Upscale
       belum_upscale: process.env.BELUM_UPSCALE_FOLDER_ID || '1xqhO-4SdNsOgKl52cpT2TkwJ8nVtG0zU'
     };
-    
-    // Validasi setiap folder ID
     const missingFolders = [];
     for (const [key, value] of Object.entries(folders)) {
       if (!value) missingFolders.push(key);
     }
-    
     if (missingFolders.length > 0) {
       console.warn('[Drive Folders] Missing folder IDs:', missingFolders);
     }
-    
     res.json(folders);
   } catch (err) {
     console.error('[Drive Folders] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
+
 // ─── n8n ──────────────────────────────────────────────────────────────────────
 const n8nHeaders = () => ({
   'X-N8N-API-KEY': process.env.N8N_API_KEY,
@@ -130,6 +123,7 @@ const triggerWorkflow = async () => {
     let latestFile = null;
     let fileSource = null;
     
+    // Coba Pictures Upload
     const picRes = await drive.files.list({
       q: `'${process.env.PICTURES_UPLOAD_FOLDER_ID}' in parents and trashed=false`,
       fields: 'files(id,name,mimeType,size)',
@@ -139,13 +133,13 @@ const triggerWorkflow = async () => {
     
     if (picRes.data.files?.length > 0) {
       fileSource = 'pictures';
-      // files.list kadang tidak return size — fetch detail lengkap
       const detail = await drive.files.get({
         fileId: picRes.data.files[0].id,
         fields: 'id,name,mimeType,size'
       });
       latestFile = detail.data;
     } else {
+      // Coba Videos Upload
       const vidRes = await drive.files.list({
         q: `'${process.env.VIDEOS_UPLOAD_FOLDER_ID}' in parents and trashed=false`,
         fields: 'files(id,name,mimeType,size)',
@@ -168,10 +162,7 @@ const triggerWorkflow = async () => {
 
     console.log('[N8N Trigger] File detail:', JSON.stringify(latestFile));
     
-    if (!latestFile) {
-      throw new Error('Tidak ada file di folder Upload!');
-    }
-    
+    // Kirim ke webhook
     const response = await axios.post(
       `${process.env.N8N_BASE_URL}/webhook/trigger-stock`,
       {
@@ -182,19 +173,26 @@ const triggerWorkflow = async () => {
         fileSource: fileSource
       },
       { 
-        timeout: 30000,
+        timeout: 60000,
         headers: { 'Content-Type': 'application/json' }
       }
     );
     
-    console.log('[N8N Trigger] Sukses:', response.status);
+    // Cek response dari N8N
+    if (response.data && response.data.code === 0) {
+      console.log('[N8N Trigger] Webhook sukses, tapi tidak ada output (mungkin file tidak valid)');
+      return { success: true, message: 'Workflow triggered, but no valid file processed' };
+    }
+    
+    console.log('[N8N Trigger] Sukses:', response.status, response.data);
     return response.data;
+    
   } catch (err) {
     const errDetail = err.response?.data?.message || err.message;
     console.error('[N8N Trigger] Error:', errDetail);
     throw new Error(errDetail);
   }
-};  
+};
 
 app.post('/api/n8n/execute', auth, async (req, res) => {
   try {
@@ -223,9 +221,24 @@ app.get('/api/n8n/status', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/n8n/workflow-info', auth, async (req, res) => {
+  try {
+    const response = await axios.get(
+      `${process.env.N8N_BASE_URL}/api/v1/workflows/${process.env.N8N_WORKFLOW_ID}`,
+      { headers: n8nHeaders() }
+    );
+    const wf = response.data;
+    res.json({
+      id: wf.id,
+      name: wf.name,
+      active: wf.active,
+      updatedAt: wf.updatedAt,
+      n8nUrl: `${process.env.N8N_BASE_URL}/workflow/${wf.id}`
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── AI Bot (Gemini) ──────────────────────────────────────────────────────────
-// Bot pakai Gemini AIzaSy key - works untuk chat/text generation
-// Kalau quota habis hari ini, besok reset otomatis (free tier 1500 req/hari)
 app.post('/api/bot/chat', auth, async (req, res) => {
   try {
     const { messages, mode } = req.body;
@@ -256,7 +269,6 @@ app.post('/api/bot/chat', auth, async (req, res) => {
   } catch (err) {
     const status = err.response?.status;
     const errMsg = err.response?.data?.error?.message || err.message;
-    // Kalau 429 quota habis, kasih pesan yang jelas
     if (status === 429) {
       return res.status(429).json({
         error: 'Quota Gemini habis hari ini. Bot akan normal kembali besok (reset otomatis). Sementara itu, Anda masih bisa generate image dan video.',
@@ -268,14 +280,11 @@ app.post('/api/bot/chat', auth, async (req, res) => {
 });
 
 // ─── Generate Image (Pollinations AI) ────────────────────────────────────────
-// 100% gratis, no API key, no watermark, commercial use OK
-// Resolusi 1024x1024, format JPEG
 app.post('/api/generate/image', auth, async (req, res) => {
   try {
     const { prompt, mode } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt required' });
 
-    // Enhance prompt berdasarkan mode
     let enhancedPrompt;
     if (mode === 'transparent_png') {
       enhancedPrompt = `${prompt}, isolated subject on pure white background, clean edges, no background elements, product photography style, professional stock image`;
@@ -302,7 +311,6 @@ app.post('/api/generate/image', auth, async (req, res) => {
     const imageData = Buffer.from(imageResponse.data).toString('base64');
     const fileName = `ai_${mode}_${Date.now()}.jpg`;
 
-    // Upload ke Google Drive folder AI_Generated
     const { Readable } = require('stream');
     const buffer = Buffer.from(imageResponse.data);
     const stream = Readable.from(buffer);
@@ -330,8 +338,6 @@ app.post('/api/generate/image', auth, async (req, res) => {
 });
 
 // ─── Generate Video (Veo 3) ───────────────────────────────────────────────────
-// Pakai Gemini API key (AIzaSy...), model veo-3.0-generate-001
-// No watermark, commercial use, 16:9, 8 detik default
 app.post('/api/generate/video', auth, async (req, res) => {
   try {
     const { prompt } = req.body;
@@ -339,7 +345,6 @@ app.post('/api/generate/video', auth, async (req, res) => {
 
     console.log(`[Generate Video] Submitting ke Veo 3: ${prompt.substring(0, 50)}...`);
 
-    // Submit generate request
     const submitResponse = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-001:predictLongRunning?key=${process.env.GEMINI_API_KEY}`,
       {
@@ -360,7 +365,6 @@ app.post('/api/generate/video', auth, async (req, res) => {
 
     console.log(`[Generate Video] Operation: ${operationName}`);
 
-    // Poll sampai selesai (max 5 menit = 60 x 5 detik)
     let videoData = null;
     for (let i = 0; i < 60; i++) {
       await new Promise(r => setTimeout(r, 5000));
@@ -380,7 +384,6 @@ app.post('/api/generate/video', auth, async (req, res) => {
       return res.status(500).json({ error: 'Timeout — video terlalu lama di-generate. Coba prompt yang lebih sederhana.', prompt });
     }
 
-    // Upload ke Google Drive folder AI_Generated Video
     const { Readable } = require('stream');
     const buffer = Buffer.from(videoData, 'base64');
     const stream = Readable.from(buffer);
@@ -463,24 +466,6 @@ app.get('/api/desktop/sysinfo', auth, (req, res) => {
   });
 });
 
-
-app.get('/api/n8n/workflow-info', auth, async (req, res) => {
-  try {
-    const response = await axios.get(
-      `${process.env.N8N_BASE_URL}/api/v1/workflows/${process.env.N8N_WORKFLOW_ID}`,
-      { headers: n8nHeaders() }
-    );
-    const wf = response.data;
-    res.json({
-      id: wf.id,
-      name: wf.name,
-      active: wf.active,
-      updatedAt: wf.updatedAt,
-      n8nUrl: `${process.env.N8N_BASE_URL}/workflow/${wf.id}`
-    });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 // ─── Auto Mode ────────────────────────────────────────────────────────────────
 let autoMode = false;
 let autoJob = null;
@@ -489,7 +474,6 @@ let lastVideosCount = 0;
 
 const checkAndRun = async () => {
   try {
-    // Cek Pictures/Upload
     const picRes = await drive.files.list({
       q: `'${process.env.PICTURES_UPLOAD_FOLDER_ID}' in parents and trashed=false`,
       fields: 'files(id)',
@@ -497,7 +481,6 @@ const checkAndRun = async () => {
     });
     const picCount = (picRes.data.files || []).length;
 
-    // Cek Videos/Upload
     const vidRes = await drive.files.list({
       q: `'${process.env.VIDEOS_UPLOAD_FOLDER_ID}' in parents and trashed=false`,
       fields: 'files(id)',
